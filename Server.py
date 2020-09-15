@@ -244,7 +244,7 @@ class ResponseServer(object):
                     self.__print__("Something wrong, source = None", "warning")
                     continue
             except Exception as e:
-                if e.args[0] in (errno.ENOTSOCK, errno.ECONNREFUSED, errno.ECONNRESET):
+                if e.args[0] in (errno.ENOTSOCK, errno.ECONNREFUSED, errno.ECONNRESET, errno.EBADF):
                     self.__print__("Connection closed", "warning")
                     break
                 raise e
