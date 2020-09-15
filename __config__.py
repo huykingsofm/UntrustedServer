@@ -35,8 +35,8 @@ def main():
     n = 0
     print("Store file to Storage ...")
     for file in os.listdir(imgs_dir):
-        path = os.path.join("imgs", file)
-        print("\rProcess {:2.2f}% [{}/{}]".format(n/N * 100, n, N), end = "")
+        path = os.path.join(imgs_dir, file)
+        print("\rProcess {:2.2f}% [{}/{}]".format((n + 1)/N * 100, n, N), end = "")
         if os.path.isfile(path):
             try:
                 __enc_file__(path, ".tmp")

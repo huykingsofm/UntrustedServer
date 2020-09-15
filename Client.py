@@ -18,8 +18,6 @@ from FileEncryptor import FileEncryptor, BMPEncryptor
 
 from FileStorage import File
 
-#from File import File, FileStorage
-
 from constant import SIZE_OF_EACH_POSITION_IN_MATCH, N_BYTES_FOR_IDENTIFYING_PATH
 
 KEY = b"0123456789abcdef"
