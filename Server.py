@@ -14,13 +14,17 @@ from SecureFTP import NoCipher, XorCipher, AES_CTR
 
 from FileStorage import FileStorage, File, MAX_BUFFER
 
-from constant import SIZE_OF_EACH_POSITION_IN_MATCH
+from constant import SIZE_OF_INT
 
 SERVER_MANAGER_NAME = "SERVER_MANAGER"
 LISTEN_SERVER_NAME = "LISTEN_SERVER_NAME"
-MIN_VALUES_TO_MATCH = 100
-MAX_VALUES_TO_MATCH = 100
 
+def __split_to_n_part__(s, length_each_part):
+    length = len(s)
+    padding = b"\n" * (length - (length // length_each_part) * length_each_part)
+    s += padding
+    for i in range(0, length, length_each_part):
+        yield s[i: i + length_each_part]
 
 FILE_STORAGE = FileStorage("Storage", n_splits= 100)
 
@@ -117,116 +121,67 @@ class ResponseServer(object):
 
     def __match_step_0__(self, params):
         self.__print__("In match step 0", "notification")
-        condition = params[0] == 0 and len(params) > (2 + SIZE_OF_EACH_POSITION_IN_MATCH)
-        
-        if not condition:
-            self.__node__.send(self.forwarder.name, b"$match invalid")
-            if hasattr(self, "__match_status__"):
-                del self.__match_status__
-            return False
-
         try:
-            params_t = []
-            params_t.append(params[0:1])
-            params_t.append(params[2: 2 + SIZE_OF_EACH_POSITION_IN_MATCH])
-            params_t.append(params[2 + SIZE_OF_EACH_POSITION_IN_MATCH: ])
-            params = params_t
+            p = 0
             
-            file_size = int.from_bytes(params[1], "big")
-            last_bytes = params[2]
+            file_size = int.from_bytes(params[p : p + SIZE_OF_INT], "big")
+            p = p + SIZE_OF_INT
             
-            n_values_to_match = random.randint(MIN_VALUES_TO_MATCH, MAX_VALUES_TO_MATCH)
-            n_values_to_match = min(n_values_to_match, file_size)
+            len_identifier = int.from_bytes(params[p: p + SIZE_OF_INT], "big")
+            p = p + SIZE_OF_INT
             
-            min_value = random.randint(0, file_size - n_values_to_match)
-            max_value = min(file_size, MAX_BUFFER)
+            identifier = params[p : p + len_identifier]
+            p = p + len_identifier
             
-            positions = random.sample(range(min_value, max_value), n_values_to_match)
+            n_positions = int.from_bytes(params[p : p + SIZE_OF_INT], "big")
+            p = p + SIZE_OF_INT
+            
+            positions = params[p : p + n_positions * SIZE_OF_INT]
+            p = p + n_positions * SIZE_OF_INT
+            
+            if p != len(params):
+                self.__node__.send(self.forwarder.name, b"$match invalid")
+                return False
 
-            to_bytes = lambda x: int.to_bytes(x, SIZE_OF_EACH_POSITION_IN_MATCH, "big")
-            request_packet = b"$match \x00 " + b"".join(map(to_bytes, positions))
-
-            self.__node__.send(self.forwarder.name, request_packet)
-            self.__match_status__ = {}
-            self.__match_status__["file_size"] = file_size
-            self.__match_status__["last_bytes"] = last_bytes
-            self.__match_status__["positions"] = positions
-            self.__match_status__["n_values_to_match"] = n_values_to_match
-        except Exception as e:
-            if hasattr(self, "__match_status__"):
-                del self.__match_status__
-            self.__print__(repr(e), "error")
-            return False
-        
-        return True
-
-    def __match_step_1__(self, params):
-        self.__print__("In match step 1", "notification")
-        condition = params[0] == 1 and len(params[2:]) == self.__match_status__["n_values_to_match"]
-        
-        if not condition:
-            self.__node__.send(self.forwarder.name, b"$match invalid")
-            if hasattr(self, "__match_status__"):
-                del self.__match_status__
-            return False
-        
-        try:
-            # get reply packet
-            reply_identifier = params[2:]
-
-            # filter file which file size equals to expected size
-            file_size = self.__match_status__["file_size"]
-            check_size = lambda file_name: os.path.getsize(file_name) == file_size
-            file_names = list(filter(check_size, FILE_STORAGE.iter(self.__match_status__["last_bytes"])))
-
-            # get values at all positions in all filtered file
-            positions = self.__match_status__["positions"]
+            to_int = lambda x: int.from_bytes(x, "big")
+            positions = list(map(to_int, __split_to_n_part__(positions, length_each_part= SIZE_OF_INT)))
             min_position = min(positions)
             max_position = max(positions)
 
-            get_identifier = lambda file_name: File.get_elements(file_name, positions, min_position, max_position)
-            identifiers = map(get_identifier, file_names)
+            check_size = lambda file_name: os.path.getsize(file_name) == file_size
+            file_names = list(filter(check_size, FILE_STORAGE.iter(identifier)))
 
-            # compare all identifiers to reply_identifier
-            compare_to_reply_identifier = lambda s: s == reply_identifier
-            results_in_list = map(compare_to_reply_identifier, identifiers)
-            final_result = sum(results_in_list) 
-
-            if final_result == 1:
-                sent_msg = b"$match success File found"
-            elif final_result == 0:
-                sent_msg = b"$match failure File not found"
+            get_values_at_positions = lambda file_name: File.get_elements(file_name, positions, min_position, max_position)
+            values_at_positions = list(map(get_values_at_positions, file_names))
+            reply_packet = b"$match "
+            
+            if len(values_at_positions) != 1:
+                reply_packet += "notfound {}-match".format(len(values_at_positions)).encode()
             else:
-                sent_msg = b"$match failure Many file matching"
-            self.__node__.send(self.forwarder.name, sent_msg)
+                reply_packet += b"found " + values_at_positions[0]
+
+            self.__node__.send(self.forwarder.name, reply_packet)
+
+            if len(values_at_positions) != 1:
+                return False
+
         except Exception as e:
             self.__print__(repr(e), "error")
             return False
-        finally:
-            del self.__match_status__
-
-        if final_result != 1:
-            return False
+        
         return True
 
     def match(self, params):
         # step 0:
-        #    client send $match file_size+last_bytes
-        #    server send $match pos1pos2pos3pos4...
+        #    client send $match file_size + n_identifie + identifier + n_position + positions
+        #    server send $match values 
         # step 1:
-        #    client send $match val1val2val3val4...
-        #    server send $match success or $match failure 
+        #    client verify values with its file
 
+        s = time.time()
         success = self.__match_step_0__(params)
-        if not success:
-            return False
-
-        _, data, _ = self.__node__.recv(source = self.forwarder.name)
-        if data[:6] != b"$match":
-            return False
-
-        params = data[7:]
-        success = self.__match_step_1__(params)
+        e = time.time()
+        self.__print__("Time for match step 0 is {}s".format(e - s), "notification")
         if not success:
             return False
 

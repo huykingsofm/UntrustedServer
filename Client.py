@@ -16,13 +16,15 @@ from SecureFTP.LocalVNetwork.SecureTCP import STCPSocketClosed
 from FileEncryptor import BytesGenerator, BMPImage
 from FileEncryptor import FileEncryptor, BMPEncryptor
 
-from FileStorage import File
+from FileStorage import File, MAX_BUFFER
 
-from constant import SIZE_OF_EACH_POSITION_IN_MATCH, N_BYTES_FOR_IDENTIFYING_PATH
+from constant import SIZE_OF_INT, N_BYTES_FOR_IDENTIFYING_PATH
 
 KEY = b"0123456789abcdef"
 IV = b"\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff"
 
+MIN_VALUES_TO_MATCH = 100
+MAX_VALUES_TO_MATCH = 100
 
 def __split_to_n_part__(s, length_each_part):
     length = len(s)
@@ -170,13 +172,30 @@ class Client(object):
                 return False
 
             file_size = os.path.getsize(new_file_name)
-            file_size_in_bytes = file_size.to_bytes(SIZE_OF_EACH_POSITION_IN_MATCH, "big")
+            file_size_in_bytes = file_size.to_bytes(SIZE_OF_INT, "big")
             last_bytes = File.get_elements_at_the_end(new_file_name, N_BYTES_FOR_IDENTIFYING_PATH)
-            self.__node__.send(self.__forwarder__.name, b"$match \x00 " + file_size_in_bytes + last_bytes)
+            
+            n_values_to_match = random.randint(MIN_VALUES_TO_MATCH, MAX_VALUES_TO_MATCH)
+            n_values_to_match = min(n_values_to_match, file_size)
+            
+            min_value = random.randint(0, file_size - n_values_to_match)
+            max_value = min(file_size, MAX_BUFFER)
+            
+            positions = random.sample(range(min_value, max_value), n_values_to_match)
+            to_bytes = lambda x: int.to_bytes(x, SIZE_OF_INT, "big")
+            positions_in_bytes = b"".join(map(to_bytes, positions))
+            
+            request_packet = b"$match "
+            request_packet += file_size_in_bytes
+            request_packet += len(last_bytes).to_bytes(SIZE_OF_INT, "big")
+            request_packet += last_bytes
+            request_packet += len(positions).to_bytes(SIZE_OF_INT, "big")
+            request_packet += positions_in_bytes
 
+            self.__node__.send(self.__forwarder__.name, request_packet)
             self.__match_status__ = {}
             self.__match_status__["new_file_name"] = new_file_name
-            self.__match_status__["file_size"] = file_size
+            self.__match_status__["positions"] = positions
         except Exception as e:
             self.__print__(repr(e), "error")
             
@@ -188,31 +207,27 @@ class Client(object):
         return True
 
     def __match_step_1__(self, params):
-        condition = len(params) >= 2 and params[0] == 0
-
-        if not condition:
-            self.__node__.send(self.__node__.name, b"$match invalid")
+        params_t = params.split()
+        if params_t[0] != b"found":
+            #self.__node__.send(self.__node__.name, b"$match " + params)
             os.remove(self.__match_status__["new_file_name"])
             del self.__match_status__
             return False
 
         try:
-            params = params[2:]
+            values_from_server = params[6:]
+            values_from_client = File.get_elements(
+                self.__match_status__["new_file_name"], 
+                self.__match_status__["positions"]
+            )
 
-            to_int = lambda x: int.from_bytes(x, "big")
-            positions = list(map(to_int, __split_to_n_part__(params, length_each_part= SIZE_OF_EACH_POSITION_IN_MATCH)))
-            
-            check = lambda x: x < self.__match_status__["file_size"]
-            result = sum(map(check, positions))
-            expected_result = len(params) / SIZE_OF_EACH_POSITION_IN_MATCH
-            success = result == expected_result
-            if not success:
-                self.__node__.send(self.__node__.name, b"$match failure Error from server at packet request")
-                return
-
-            values = File.get_elements(self.__match_status__["new_file_name"], positions)
-            sent_msg = b"$match \x01 " + values
-            self.__node__.send(self.__forwarder__.name, sent_msg)
+            if values_from_client == values_from_server:
+                #self.__node__.send(self.__node__.name, b"$match success")
+                return True
+            else:
+                #self.__node__.send(self.__node__.name, b"$match failure not match")
+                return False
+                
         except Exception as e:
             self.__print__(repr(e), "error")
             return False
@@ -224,39 +239,32 @@ class Client(object):
 
     def match(self, params):
         total_s = time.time()
-        s = time.time()
+        #s_step_0 = time.time()
         success = self.__match_step_0__(params)
-        e = time.time()
-        #print("Time for matching's step 0: {}".format(e - s))
+        #e_step_0 = time.time()
         if not success:
             return False
 
-        s = time.time()
+        #s_recv_1 = time.time()
         _, data, _ = self.__node__.recv(source = self.__forwarder__.name)
         if data[:6] != b"$match":
             return False
+        #e_recv_1 = time.time()
 
         params = data[7:]
+        #s_step_1 = time.time()
         success = self.__match_step_1__(params)
-        e = time.time()
-        #print("Time for matching's step 1: {}".format(e - s))
+        #e_step_1 = time.time()
         if not success:
             return False
 
-        _, data, _ = self.__node__.recv(source = self.__forwarder__.name)
-        command_and_params = data.split()
-        command = command_and_params[0]
-        params = command_and_params[1:]
         total_e = time.time()
-        print("Total time for matching: {}".format(total_e - total_s))
+        #self.__print__("Time for matching step 0: {}s".format(e_step_0 - s_step_0), "notification")
+        #self.__print__("Time for matching recv step 1: {}s".format(e_recv_1 - s_recv_1), "notification")
+        #self.__print__("Time for matching step 1: {}s".format(e_step_1 - s_step_1), "notification")
+        self.__print__("Total time for matching: {}".format(total_e - total_s), "notification")
 
-        if command != b"$match" or len(params) == 0 or params[0] not in [b"success", b"failure"]:
-            return False
-
-        if params[0] == b"success":
-            return True
-
-        return False
+        return True
 
     def _recv_from_server(self):
         while True:

@@ -36,7 +36,7 @@ def main():
     print("Store file to Storage ...")
     for file in os.listdir(imgs_dir):
         path = os.path.join(imgs_dir, file)
-        print("\rProcess {:2.2f}% [{}/{}]".format((n + 1)/N * 100, n, N), end = "")
+        print("\rProcess {:2.2f}% [{}/{}]".format((n + 1)/N * 100, n + 1, N), end = "")
         if os.path.isfile(path):
             try:
                 __enc_file__(path, ".tmp")
@@ -49,4 +49,7 @@ def main():
             n += 1
 
 if __name__ == "__main__":
-    main()
+    #main()
+    fs = FileStorage("Storage", 100)
+    last_bytes = File.get_elements_at_the_end("32553426708", 100)
+    print(fs.create_new_path(last_bytes))
