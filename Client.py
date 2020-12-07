@@ -1,8 +1,8 @@
 import re
 import os
-import cv2
 import time
 import random
+import socket
 import base64
 import hashlib
 import keyboard
@@ -488,7 +488,8 @@ class Client(object):
             # Receive info from self
             if source == self.__node__.name and packet_dict["TYPE"] == CONST_TYPE.NOTIFICATION:
                 print("\r" + packet_dict["DATA"].decode())
-                keyboard.press_and_release("enter")
+                if socket.gethostbyaddr(socket.gethostname())[0] != "raspberrypi":
+                    keyboard.press_and_release("enter")
                 self.__no_input__ = True
                 continue
             
