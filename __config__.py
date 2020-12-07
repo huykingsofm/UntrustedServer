@@ -49,7 +49,4 @@ def main():
             n += 1
 
 if __name__ == "__main__":
-    #main()
-    fs = FileStorage("Storage", 100)
-    last_bytes = File.get_elements_at_the_end("32553426708", 100)
-    print(fs.create_new_path(last_bytes))
+    main()

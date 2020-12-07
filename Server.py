@@ -2,22 +2,31 @@ import os
 import time
 import errno
 import random
+import hashlib
 import threading
 import functools
 
-from SecureFTP import SFTPServer
+from Timer import Timer
+from done import done
+
+from SecureFTP import SFTP
 from SecureFTP import STCPSocket
 from SecureFTP import StandardPrint
 from SecureFTP import __hash_a_file__
 from SecureFTP import LocalNode, ForwardNode
 from SecureFTP import NoCipher, XorCipher, AES_CTR
 
-from FileStorage import FileStorage, File, MAX_BUFFER
+from FileStorage import FileStorage, File, MAX_BUFFER, FileUtils
 
 from constant import SIZE_OF_INT
+from constant import DEFAULT_LENGTH_OF_KEY, DEFAULT_N_BLOCKS
+
+from RemoteStoragePacketFormat import RSPacket, CONST_STATUS, CONST_TYPE
 
 SERVER_MANAGER_NAME = "SERVER_MANAGER"
 LISTEN_SERVER_NAME = "LISTEN_SERVER_NAME"
+
+TIMER = Timer()
 
 def __split_to_n_part__(s, length_each_part):
     length = len(s)
@@ -25,6 +34,35 @@ def __split_to_n_part__(s, length_each_part):
     s += padding
     for i in range(0, length, length_each_part):
         yield s[i: i + length_each_part]
+
+
+def prove_proofs(file_name, max_n_blocks, blocks_list, key):
+    file = open(file_name, "rb")
+
+    if max(blocks_list) >= max_n_blocks:
+        raise Exception("There some incorrect block in block list")
+
+    file_size = os.path.getsize(file_name)
+    block_size = int(file_size / max_n_blocks)
+
+    last_position_of_block = 0
+    proofs = []
+    for position_of_block in blocks_list:
+        if last_position_of_block > position_of_block:
+            raise Exception("Block list must have ascending order")
+
+        offset = (position_of_block - last_position_of_block) * block_size
+        file.seek(offset, FileUtils.FROM_CUR)
+        block = file.read(block_size)
+
+        digest = hashlib.sha1(key + block).digest()
+        proofs.append(digest)
+
+        last_position_of_block = position_of_block + 1
+
+    file.close()
+
+    return proofs
 
 FILE_STORAGE = FileStorage("Storage", n_splits= 100)
 
@@ -41,160 +79,216 @@ class ResponseServer(object):
 
         self.__print__ = StandardPrint(f"Response Server to {client_address}", verbosities)
 
-        # avoid error warning from vscode
+        # Avoid warning from editor ~~
         self.__match_status__ = {}
         del self.__match_status__
 
-    def __store_step_0__(self, params):
-        self.__print__("In store step 0", "notification")
-        if len(params) != 0:
-            self.__node__.send(self.forwarder.name, b"$store invalid")
-            return False
-        
-        self.__node__.send(self.forwarder.name, b"$store request_match")
-        return True
+    def store(self, packet_dict):
+        TIMER.start("store_packet_checking")
+        result = RSPacket.check(
+            packet_dict, 
+            expected_type = CONST_TYPE.STORE, 
+            expected_status = CONST_STATUS.REQUEST, 
+            is_dict= True)
+        TIMER.end("store_packet_checking")
 
-    def __store_step_1__(self, params):
-        self.__print__("In store step 1", "notification")
-        return self.match(params)
-
-    def __store_step_2__(self, params):
-        self.__print__("In store step 2", "notification")
-        if len(params) == 0:
-            return False
+        if result.value == False:
+            return done(False, {"where": "Receiving request store packet"}, inherit_from = result)
 
         try:
-            filename = FILE_STORAGE.create_new_path(params)
-            self.__node__.send(self.forwarder.name, b"$store accept")
+            TIMER.start("store_create_new_path")
+            new_file_name = FILE_STORAGE.create_new_path(packet_dict["DATA"])
+            packet = RSPacket(
+                packet_type= CONST_TYPE.STORE,
+                status= CONST_STATUS.ACCEPT
+            )
+        except Exception as e:
+            packet = RSPacket(
+                packet_type= CONST_TYPE.STORE,
+                status= CONST_STATUS.DENY
+            )
+            return done(False, {"message": "Wrong in create file name", "where": "Find path to storing", "debug": repr(e)})
+        finally:
+            TIMER.end("store_create_new_path")
+            self.__node__.send(self.forwarder.name, packet.create())
 
+        try:
+            TIMER.start("store_get_uploaded_file")
             cipher = NoCipher()
             ftp_address = self.server_address[0], self.server_address[1] + 1
-            ftpserver = SFTPServer(
-                address = ftp_address, 
-                newfilename = filename, 
-                cipher = cipher,
-                save_file_after= 32 * 1024 ** 2, # 32MB
-                buffer_size= 3 * 1024 ** 2, # 3MB
-                verbosities= ("error", )
-                )
-            success = ftpserver.start()
-            if not success:
-                self.__node__.send(self.forwarder.name, b"$store failure Some error occurs when transport file")
+            ftp = SFTP(
+                address= ftp_address,
+                address_owner= "self"
+            )
+            ftp.as_receiver(
+                storage_path= new_file_name,
+                cipher= cipher,
+                save_file_after= 32 * 1024 ** 2, # 32 MB
+                buffer_size= 3 * 1024 ** 2, # 3 MB
+            )
+            success = ftp.start()
+            TIMER.end("store_get_uploaded_file")
+            if success:
+                FILE_STORAGE.save_info(new_file_name)
+            
+            if success:
+                STATUS = CONST_STATUS.SUCCESS
             else:
-                FILE_STORAGE.save_info(filename)
-                self.__node__.send(self.forwarder.name, b"$store success Send file successfully")
+                STATUS = CONST_STATUS.FAILURE
+
+            packet = RSPacket(
+                packet_type= CONST_TYPE.STORE,
+                status= STATUS
+            )
+            self.__node__.send(self.forwarder.name, packet.create())
         except Exception as e:
-            self.__print__(repr(e), "error")
-            return False
+            return done(False, {"message": "Something wrong", "debug": "Unknown", "debug": repr(e)})
 
-    def store(self, params):
-        # step 0: 
-        #   client send $store
-        #   server send $store request_match
-        # step 1: match
-        # step 2: if match == success:
-        #   client send $store last_bytes
-        #   server send $store accept
-        #   FTP
-
-        self.__store_step_0__(params)
-
-        _, data, _ = self.__node__.recv(source = self.forwarder.name)
-        if data[:6] != b"$match":
-            return False
-
-        params = data[7:]
-        success = self.__store_step_1__(params)
-        if success:
-            return False
-        
-        _, data, _ = self.__node__.recv(source = self.forwarder.name)
-        if data[:6] != b"$store":
-            return False
-        
-        params = data[7:]
-        success = self.__store_step_2__(params)
-        if not success:
-            return False
-        
-        return True
-
-    def __match_step_0__(self, params):
-        self.__print__("In match step 0", "notification")
+    def __generate_reply_packet_for_checking__(self, data):
         try:
             p = 0
             
-            file_size = int.from_bytes(params[p : p + SIZE_OF_INT], "big")
+            file_size = int.from_bytes(data[p : p + SIZE_OF_INT], "big")
             p = p + SIZE_OF_INT
             
-            len_identifier = int.from_bytes(params[p: p + SIZE_OF_INT], "big")
+            len_key = int.from_bytes(data[p: p + SIZE_OF_INT], "big")
+            p = p + SIZE_OF_INT
+
+            key = data[p: p + len_key]
+            p = p + len_key
+
+            len_identifier = int.from_bytes(data[p: p + SIZE_OF_INT], "big")
             p = p + SIZE_OF_INT
             
-            identifier = params[p : p + len_identifier]
+            identifier = data[p : p + len_identifier]
             p = p + len_identifier
             
-            n_positions = int.from_bytes(params[p : p + SIZE_OF_INT], "big")
+            n_positions = int.from_bytes(data[p : p + SIZE_OF_INT], "big")
             p = p + SIZE_OF_INT
             
-            positions = params[p : p + n_positions * SIZE_OF_INT]
+            positions = data[p : p + n_positions * SIZE_OF_INT]
             p = p + n_positions * SIZE_OF_INT
             
-            if p != len(params):
-                self.__node__.send(self.forwarder.name, b"$match invalid")
-                return False
+            if p != len(data):
+                return done(None, {"message": "Invalid packet"})
 
             to_int = lambda x: int.from_bytes(x, "big")
             positions = list(map(to_int, __split_to_n_part__(positions, length_each_part= SIZE_OF_INT)))
-            min_position = min(positions)
-            max_position = max(positions)
 
             check_size = lambda file_name: os.path.getsize(file_name) == file_size
             file_names = list(filter(check_size, FILE_STORAGE.iter(identifier)))
 
-            get_values_at_positions = lambda file_name: File.get_elements(file_name, positions, min_position, max_position)
-            values_at_positions = list(map(get_values_at_positions, file_names))
-            reply_packet = b"$match "
+            TIMER.start("check_generating_proof")
+            STATUS = CONST_STATUS.NOT_FOUND
+            if len(file_names) == 1:
+                STATUS = CONST_STATUS.FOUND
+                proofs = prove_proofs(file_names[0], DEFAULT_N_BLOCKS, positions, key)
             
-            if len(values_at_positions) != 1:
-                reply_packet += "notfound {}-match".format(len(values_at_positions)).encode()
+            TIMER.end("check_generating_proof")
+            packet = RSPacket(
+                packet_type= CONST_TYPE.CHECK,
+                status= STATUS
+            )
+            if STATUS == CONST_STATUS.FOUND:
+                packet.set_data(b"".join(proofs))
             else:
-                reply_packet += b"found " + values_at_positions[0]
-
-            self.__node__.send(self.forwarder.name, reply_packet)
-
-            if len(values_at_positions) != 1:
-                return False
-
+                packet.set_data(len(file_names).to_bytes(2, "big"))
+            
+            return done(packet.create(), {"status": STATUS})
         except Exception as e:
-            self.__print__(repr(e), "error")
-            return False
+            return done(None, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
+
+    def check(self, packet_dict):
+        result = self.__generate_reply_packet_for_checking__(packet_dict["DATA"])
+        if result.value == None:
+            return done(False, {"where": "Generate reply packet"}, inherit_from = result)
+
+        self.__node__.send(self.forwarder.name, result.value)
         
-        return True
+        if result.status == CONST_STATUS.FOUND:
+            return done(True)
+        else:
+            return done(False, {"message": "File not found"})
 
-    def match(self, params):
-        # step 0:
-        #    client send $match file_size + n_identifie + identifier + n_position + positions
-        #    server send $match values 
-        # step 1:
-        #    client verify values with its file
+    def retrieve(self, packet_dict):
+        try:
+            TIMER.start("retrieve_checking_phase")
+            result = RSPacket.check(
+                packet_dict,
+                CONST_TYPE.RETRIEVE,
+                CONST_STATUS.REQUEST,
+                is_dict= True
+            )
+            TIMER.end("retrieve_checking_phase")
+            if result.value == False:
+                return done(False, {"where": "Check input packet"}, inherit_from = result)
 
-        s = time.time()
-        success = self.__match_step_0__(params)
-        e = time.time()
-        self.__print__("Time for match step 0 is {}s".format(e - s), "notification")
-        if not success:
-            return False
+            TIMER.start("retrieve_get_file_information")
+            file_size = int.from_bytes(packet_dict["DATA"][ : SIZE_OF_INT], "big")
+            last_bytes = packet_dict["DATA"][SIZE_OF_INT: ]
 
-        return True
+            check_size = lambda file_name: os.path.getsize(file_name) == file_size
+            file_names = list(filter(check_size, FILE_STORAGE.iter(last_bytes)))
+            TIMER.end("retrieve_get_file_information")
+
+            STATUS = CONST_STATUS.DENY
+            if len(file_names) == 1:
+                STATUS = CONST_STATUS.ACCEPT
+
+            packet = RSPacket(
+                CONST_TYPE.RETRIEVE,
+                STATUS
+            )
+            if STATUS == CONST_STATUS.ACCEPT:
+                packet.set_data(len(file_names).to_bytes(2, "big"))
+
+            self.__node__.send(self.forwarder.name, packet.create())
+
+            if STATUS == CONST_STATUS.DENY:
+                return done(False, {"message": "Retrived data is {}-found".format(len(file_names))})
+
+            TIMER.start("retrieve_transport_file")
+            ftp_address = self.server_address[0], self.server_address[1] + 1
+            ftp = SFTP(
+                address= ftp_address,
+                address_owner= "self"
+            )
+            ftp.as_sender(
+                file_name= file_names[0],
+                cipher= NoCipher(),
+                buffer_size= int(2.9 * 1024 ** 2), # 2.9 MB
+            )
+            success = ftp.start()
+            TIMER.end("retrieve_transport_file")
+
+            if success:
+                return done(True)
+            else:
+                return done(False, {"message": "Error in ftp", "where": "Transport file"})
+        except Exception as e:
+            return done(False, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
 
     def start(self):
         self.__print__("Start reponse...", "notification")
+        store_phases = [
+            "store_packet_checking",
+            "store_create_new_path",
+            "store_get_uploaded_file"
+        ]
+        check_phases = [
+            "check_generating_proof"
+        ]
+        retrieve_phases = [
+            "retrieve_checking_phase",
+            "retrieve_get_file_information",
+            "retrieve_transport_file"
+        ]
+
         while True:
             try:
                 source, data, _ = self.__node__.recv()
                 if source == None:
                     self.socket.sendall(b"$test alive")
-
                     # if connection is alive, ignore error and continue
                     self.__print__("Something wrong, source = None", "warning")
                     continue
@@ -204,17 +298,39 @@ class ResponseServer(object):
                     break
                 raise e
 
-            command_and_params = data.split()
-            command = command_and_params[0]
-            params = command_and_params[1:]
+            packet_dict = RSPacket.extract(data)
 
             if source == self.forwarder.name:
                 try:
-                    if command == b"$store":
-                        self.store(params)
-                    elif command == b"$match":
-                        params = data[7:]
-                        self.match(params)
+                    if packet_dict["TYPE"] == CONST_TYPE.STORE:
+                        self.store(packet_dict)
+                        total_time = 0
+                        for phase in store_phases:
+                            if TIMER.check(phase):
+                                elapsed_time = TIMER.get(phase)
+                                total_time += elapsed_time
+                                self.__print__("Elapsed time for {}: {}s".format(phase, elapsed_time), "notification")
+                        self.__print__("Elapsed time for retrieving: {}s".format(total_time), "notification")
+
+                    elif packet_dict["TYPE"] == CONST_TYPE.CHECK:
+                        self.check(packet_dict)
+                        total_time = 0
+                        for phase in check_phases:
+                            if TIMER.check(phase):
+                                elapsed_time = TIMER.get(phase)
+                                total_time += elapsed_time
+                                self.__print__("Elapsed time for {}: {}s".format(phase, elapsed_time), "notification")
+                        self.__print__("Elapsed time for retrieving: {}s".format(total_time), "notification")
+
+                    elif packet_dict["TYPE"] == CONST_TYPE.RETRIEVE:
+                        self.retrieve(packet_dict)
+                        total_time = 0
+                        for phase in retrieve_phases:
+                            if TIMER.check(phase):
+                                elapsed_time = TIMER.get(phase)
+                                total_time += elapsed_time
+                                self.__print__("Elapsed time for {}: {}s".format(phase, elapsed_time), "notification")
+                        self.__print__("Elapsed time for retrieving: {}s".format(total_time), "notification")
                     else:
                         self.__print__("Invalid command", "warning")
                 except Exception as e:
