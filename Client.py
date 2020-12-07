@@ -46,23 +46,40 @@ def __split_to_n_part__(s, length_each_part):
     for i in range(0, length, length_each_part):
         yield s[i: i + length_each_part]
 
-def __get_bytes_generator__(file_name):
-    # return BMPImage(file_name)
-    return BytesGenerator("file", file_name)
-
-def __encrypt_file__(file_name, new_file_name):
-    bytes_gen = __get_bytes_generator__(file_name)
+def __encrypt_bmp__(file_name, new_file_name):
+    bytes_gen = BMPImage(file_name)
     cipher = AES_CBC(KEY)
     cipher.set_param(0, IV)
     file_enc = BMPEncryptor(cipher, buffer_size= 2 * 1024 ** 2)
     file_enc.encrypt_to(bytes_gen, new_file_name)
 
-def __decrypt_file__(file_name, new_file_name):
-    bytes_gen = __get_bytes_generator__(file_name)
+def __encrypt_arbitrary_file__(file_name, new_file_name):
+    bytes_gen = BytesGenerator("file", file_name)
+    cipher = AES_CBC(KEY)
+    cipher.set_param(0, IV)
+    file_enc = FileEncryptor(cipher, buffer_size= 2 * 1024 ** 2)
+    file_enc.encrypt_to(bytes_gen, new_file_name)
+
+
+def __decrypt_bmp_file__(file_name, new_file_name):
+    bytes_gen = BMPImage(file_name)
     cipher = AES_CBC(KEY)
     cipher.set_param(0, IV)
     file_enc = BMPEncryptor(cipher, buffer_size= 2 * 1024 ** 2)
     file_enc.decrypt_to(bytes_gen, new_file_name)
+
+def __decrypt_arbitrary_file__(file_name, new_file_name):
+    bytes_gen = BytesGenerator("file", file_name)
+    cipher = AES_CBC(KEY)
+    cipher.set_param(0, IV)
+    file_enc = FileEncryptor(cipher, buffer_size= 2 * 1024 ** 2)
+    file_enc.decrypt_to(bytes_gen, new_file_name)
+
+def __encrypt_file__(file_name, new_file_name):
+    __encrypt_arbitrary_file__(file_name, new_file_name)
+
+def __decrypt_file__(file_name, new_file_name):
+    __decrypt_arbitrary_file__(file_name, new_file_name)
 
 def __try_encrypting_file__(file_name, new_file_name):
     try:
