@@ -20,7 +20,7 @@ def engine(args):
         analyzing_cryptography_functions.engine(args)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("A tool for analyzing on your devices")
+    parser = argparse.ArgumentParser(description= "A tool for analyzing on your devices")
     set_args(parser)
     args = parser.parse_args()
     engine(args)

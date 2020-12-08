@@ -74,7 +74,7 @@ def engine(args):
             n += 1
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("A tool for configuring server (cloud)")
+    parser = argparse.ArgumentParser(description= "A tool for configuring server (cloud)")
     set_args(parser)
     args = parser.parse_args()
     engine(args)

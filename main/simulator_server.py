@@ -72,7 +72,7 @@ def engine(args):
     listen_server.start()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("A tool for start server")
+    parser = argparse.ArgumentParser(description= "A tool for start server")
     set_args(parser)
     args = parser.parse_args()
     engine(args)

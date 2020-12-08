@@ -493,7 +493,7 @@ class Client(object):
         ]
         while True:
             try:
-                source, data, obj = self.__node__.recv()
+                source, data, _ = self.__node__.recv()
                 packet_dict = RSPacket.extract(data)
             except STCPSocketClosed as e:
                 self.__print__(repr(e), "warning")

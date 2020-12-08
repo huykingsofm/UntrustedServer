@@ -90,7 +90,7 @@ def engine(args):
             create_a_file(FILE_NAME_FORMAT.format(sizes_in_str[i]), size= sizes[i] * 1024 ** 2, block_size= 3 * 1024 ** 2)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("A tool for creating files with multiple size")
+    parser = argparse.ArgumentParser(description= "A tool for creating files with multiple size")
     set_args(parser)
     args = parser.parse_args()
     engine(args)

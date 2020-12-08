@@ -55,7 +55,7 @@ def engine(args):
     client.start()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("A tool for start client")
+    parser = argparse.ArgumentParser(description= "A tool for start client")
     set_args(parser)
     args = parser.parse_args()
     engine(args)

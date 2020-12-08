@@ -191,7 +191,7 @@ def engine(args):
         plt.show()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("A tool for analyzing cost of some functions in your device")
+    parser = argparse.ArgumentParser(description= "A tool for analyzing cost of some functions in your device")
     set_args(parser)
     args = parser.parse_args()
     engine(args)

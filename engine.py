@@ -37,7 +37,7 @@ def engine(args):
         simulator.engine(args)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("A general tool of project")
+    parser = argparse.ArgumentParser(description= "A general tool of project")
     set_args(parser)
     args = parser.parse_args()
     engine(args)
