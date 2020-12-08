@@ -7,7 +7,7 @@ import threading
 import functools
 
 from .Timer import Timer
-from .done import done
+from .Done import Done
 
 from .SecureFTP import SFTP
 from .SecureFTP import STCPSocket
@@ -93,7 +93,7 @@ class ResponseServer(object):
         TIMER.end("store_packet_checking")
 
         if result.value == False:
-            return done(False, {"where": "Receiving request store packet"}, inherit_from = result)
+            return Done(False, {"where": "Receiving request store packet"}, inherit_from = result)
 
         try:
             TIMER.start("store_create_new_path")
@@ -107,7 +107,7 @@ class ResponseServer(object):
                 packet_type= CONST_TYPE.STORE,
                 status= CONST_STATUS.DENY
             )
-            return done(False, {"message": "Wrong in create file name", "where": "Find path to storing", "debug": repr(e)})
+            return Done(False, {"message": "Wrong in create file name", "where": "Find path to storing", "debug": repr(e)})
         finally:
             TIMER.end("store_create_new_path")
             self.__node__.send(self.forwarder.name, packet.create())
@@ -142,7 +142,7 @@ class ResponseServer(object):
             )
             self.__node__.send(self.forwarder.name, packet.create())
         except Exception as e:
-            return done(False, {"message": "Something wrong", "debug": "Unknown", "debug": repr(e)})
+            return Done(False, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
 
     def __generate_reply_packet_for_checking__(self, data):
         try:
@@ -170,7 +170,7 @@ class ResponseServer(object):
             p = p + n_positions * SIZE_OF_INT
             
             if p != len(data):
-                return done(None, {"message": "Invalid packet"})
+                return Done(None, {"message": "Invalid packet"})
 
             to_int = lambda x: int.from_bytes(x, "big")
             positions = list(map(to_int, __split_to_n_part__(positions, length_each_part= SIZE_OF_INT)))
@@ -194,21 +194,21 @@ class ResponseServer(object):
             else:
                 packet.set_data(len(file_names).to_bytes(2, "big"))
             
-            return done(packet.create(), {"status": STATUS})
+            return Done(packet.create(), {"status": STATUS})
         except Exception as e:
-            return done(None, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
+            return Done(None, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
 
     def check(self, packet_dict):
         result = self.__generate_reply_packet_for_checking__(packet_dict["DATA"])
         if result.value == None:
-            return done(False, {"where": "Generate reply packet"}, inherit_from = result)
+            return Done(False, {"where": "Generate reply packet"}, inherit_from = result)
 
         self.__node__.send(self.forwarder.name, result.value)
         
         if result.status == CONST_STATUS.FOUND:
-            return done(True)
+            return Done(True)
         else:
-            return done(False, {"message": "File not found"})
+            return Done(False, {"message": "File not found"})
 
     def retrieve(self, packet_dict):
         try:
@@ -221,7 +221,7 @@ class ResponseServer(object):
             )
             TIMER.end("retrieve_checking_phase")
             if result.value == False:
-                return done(False, {"where": "Check input packet"}, inherit_from = result)
+                return Done(False, {"where": "Check input packet"}, inherit_from = result)
 
             TIMER.start("retrieve_get_file_information")
             file_size = int.from_bytes(packet_dict["DATA"][ : SIZE_OF_INT], "big")
@@ -245,7 +245,7 @@ class ResponseServer(object):
             self.__node__.send(self.forwarder.name, packet.create())
 
             if STATUS == CONST_STATUS.DENY:
-                return done(False, {"message": "Retrived data is {}-found".format(len(file_names))})
+                return Done(False, {"message": "Retrived data is {}-found".format(len(file_names))})
 
             TIMER.start("retrieve_transport_file")
             ftp_address = self.server_address[0], self.server_address[1] + 1
@@ -262,11 +262,11 @@ class ResponseServer(object):
             TIMER.end("retrieve_transport_file")
 
             if success:
-                return done(True)
+                return Done(True)
             else:
-                return done(False, {"message": "Error in ftp", "where": "Transport file"})
+                return Done(False, {"message": "Error in ftp", "where": "Transport file"})
         except Exception as e:
-            return done(False, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
+            return Done(False, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
 
     def start(self):
         self.__print__("Start reponse...", "notification")

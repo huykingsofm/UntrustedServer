@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from skimage.metrics import structural_similarity
 
 from .Timer import Timer
-from .done import done # Formated return value
+from .Done import Done # Formated return value
 
 from .SecureFTP import STCPSocket
 from .SecureFTP import StandardPrint
@@ -85,19 +85,19 @@ def __try_encrypting_file__(file_name, new_file_name):
     try:
         __encrypt_file__(file_name, new_file_name)
     except FileNotFoundError as e:
-        return done(False, {"message": "Something wrong", "debug": repr(e), "level": "warning"})
+        return Done(False, {"message": "Something wrong", "debug": repr(e), "level": "warning"})
     except Exception as e:
-        return done(False, {"message": "Something wrong", "debug": repr(e), "level": "error"})
-    return done(True)
+        return Done(False, {"message": "Something wrong", "debug": repr(e), "level": "error"})
+    return Done(True)
 
 def __try_decrypting_file__(file_name, new_file_name):
     try:
         __decrypt_file__(file_name, new_file_name)
     except FileNotFoundError as e:
-        return done(False, {"message": "Something wrong", "debug": repr(e), "level": "warning"})
+        return Done(False, {"message": "Something wrong", "debug": repr(e), "level": "warning"})
     except Exception as e:
-        return done(False, {"message": "Something wrong", "debug": repr(e), "level": "error"})
-    return done(True)
+        return Done(False, {"message": "Something wrong", "debug": repr(e), "level": "error"})
+    return Done(True)
 
 
 def generate_proof_file(n_proofs, file_name, proof_file_name, n_blocks, length_of_key):
@@ -190,7 +190,7 @@ class Client(object):
 
     def store(self, params):
         if len(params) != 1:
-            return done(False, {"message": "Invalid parameters", "where": "Has not yet started storing", "debug": params})
+            return Done(False, {"message": "Invalid parameters", "where": "Has not yet started storing", "debug": params})
         
         file_name = params[0].decode()
         encrypted_file_name = file_name + ".enc"
@@ -202,7 +202,7 @@ class Client(object):
             result = __try_encrypting_file__(file_name, encrypted_file_name)
             TIMER.end("store_encrypting_phase")
             if result.value == False:
-                return done(result.value, attributes= {"where": "Encrypting file"}, inherit_from= result)
+                return Done(result.value, attributes= {"where": "Encrypting file"}, inherit_from= result)
 
             # Generate temporary proof to check exist of file in server
             TIMER.start("store_generating_temp_proof_phase")
@@ -234,7 +234,7 @@ class Client(object):
             result = self.check([temporary_proof_file_name.encode()])
             TIMER.end("store_checking_phase")
             if result.value == True:
-                return done(False, {"message": "File has ready been in server", "where": "Checking phase"})
+                return Done(False, {"message": "File has ready been in server", "where": "Checking phase"})
 
             # Sending request storing packet
             TIMER.start("store_sending_request")
@@ -253,7 +253,7 @@ class Client(object):
             result = RSPacket.check(response, expected_type = CONST_TYPE.STORE, expected_status= CONST_STATUS.ACCEPT)
             TIMER.end("store_receiving_agreement")
             if result.value == False:
-                return done(result.value, {"where": "Receiving reponse (accept/deny) from server"}, inherit_from= result)
+                return Done(result.value, {"where": "Receiving reponse (accept/deny) from server"}, inherit_from= result)
 
             # Start Secure FTP service
             TIMER.start("store_uploading_phase")
@@ -270,7 +270,7 @@ class Client(object):
             success = ftp.start()
             TIMER.end("store_uploading_phase")
             if not success:
-                return done(False, {"message": "Error in upload file", "where": "Upload phase"})
+                return Done(False, {"message": "Error in upload file", "where": "Upload phase"})
 
             # Receiving reponse (success/failure) from server
             TIMER.start("store_receiving_result")
@@ -278,11 +278,11 @@ class Client(object):
             result = RSPacket.check(response, expected_type= CONST_TYPE.STORE, expected_status= CONST_STATUS.SUCCESS)
             TIMER.end("store_receiving_result")
             if result.value == False:
-                return done(False, {"where": "Receiving reponse (success/failure) from server"}, inherit_from= result)
+                return Done(False, {"where": "Receiving reponse (success/failure) from server"}, inherit_from= result)
 
-            return done(True)
+            return Done(True)
         except Exception as e:
-            return done(False, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
+            return Done(False, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
 
         finally:
             if os.path.isfile(encrypted_file_name):
@@ -293,7 +293,7 @@ class Client(object):
 
     def __generate_challenge_packet__(self, proof_file_name):
         if not isinstance(proof_file_name, str):
-            return done(False, {"message": "Invalid parameters", "debug": proof_file_name})
+            return Done(False, {"message": "Invalid parameters", "debug": proof_file_name})
 
         try:
             file_size, last_bytes = extract_proof_file(proof_file_name)
@@ -321,13 +321,13 @@ class Client(object):
                 status= CONST_STATUS.REQUEST
             )
             packet.append_data(data)
-            return done(packet.create(), {"proofs": proofs})
+            return Done(packet.create(), {"proofs": proofs})
         except Exception as e:
-            return done(None, {"message": "Wrong in get info of file", "debug": repr(e)})
+            return Done(None, {"message": "Wrong in get info of file", "debug": repr(e)})
 
     def check(self, params):
         if len(params) != 1:
-            return done(False, {"message": "Invalid parameters", "where": "Has not yet started storing", "debug": params})
+            return Done(False, {"message": "Invalid parameters", "where": "Has not yet started storing", "debug": params})
         
         proof_file_name = params[0].decode()
         try:
@@ -337,7 +337,7 @@ class Client(object):
             proofs = result.proofs
             TIMER.end("check_generating_challenge_packet")
             if result.value == None:
-                return done(False, {"where": "Generate challenge packet"}, inherit_from= result)
+                return Done(False, {"where": "Generate challenge packet"}, inherit_from= result)
 
             TIMER.start("check_sending_challenge_packet")
             self.__node__.send(self.__forwarder__.name, result.value)
@@ -349,25 +349,25 @@ class Client(object):
             result = RSPacket.check(response, expected_type= CONST_TYPE.CHECK, expected_status= CONST_STATUS.FOUND)
             TIMER.end("check_receiving_proofs_from_server")
             if result.value == False:
-                return done(False, {"where": "Receiving response (proofs) from server"}, inherit_from= result)
+                return Done(False, {"where": "Receiving response (proofs) from server"}, inherit_from= result)
             
             # Compare proofs from server
             TIMER.start("check_compare_phase")
             client_proofs = b"".join(proofs)
             server_proofs = RSPacket.extract(response)["DATA"]
             if client_proofs != server_proofs:
-                result= done(False, {"message": "File integrity was compromised"})
+                result= Done(False, {"message": "File integrity was compromised"})
             else:
-                result = done(True)
+                result = Done(True)
             TIMER.end("check_compare_phase")
 
             return result
         except Exception as e:
-            return done(False, {"message": "Something wrong", "debug": repr(e), "where": "Unknown"})
+            return Done(False, {"message": "Something wrong", "debug": repr(e), "where": "Unknown"})
             
     def retrieve(self, params):
         if len(params) != 2:
-            return done(False, {"message": "Invalid parameters", "where": "Check input"})
+            return Done(False, {"message": "Invalid parameters", "where": "Check input"})
 
         proof_file_name = params[0].decode()
         storage_path = params[1].decode()
@@ -379,7 +379,7 @@ class Client(object):
             TIMER.end("retrieve_checking_phase")
 
             if result.value == False:
-                return done(False, {"where": "checking phase"}, result)
+                return Done(False, {"where": "checking phase"}, result)
 
             # Sending request packet
             TIMER.start("retrive_send_request")
@@ -399,7 +399,7 @@ class Client(object):
 
             result = RSPacket.check(response, expected_type= CONST_TYPE.RETRIEVE, expected_status= CONST_STATUS.ACCEPT)
             if result.value == False:
-                return done(False, {"where": "Waiting for response of retrieving request"}, inherit_from = result)
+                return Done(False, {"where": "Waiting for response of retrieving request"}, inherit_from = result)
 
             # Start FTP
             TIMER.start("retrieve_download_phase")
@@ -417,24 +417,24 @@ class Client(object):
             success = ftp.start()
             TIMER.end("retrieve_download_phase")
             if not success:
-                return done(False, {"message": "Error in retrieve file", "where": "Retrieve file"})
+                return Done(False, {"message": "Error in retrieve file", "where": "Retrieve file"})
 
             TIMER.start("retrieve_decrypting_phase")
             result = __try_decrypting_file__(storage_path + ".download", storage_path)
             TIMER.end("retrieve_decrypting_phase")
             if result.value == False:
-                return done(False, {"where": "Decrypting phase"}, inherit_from = result)            
+                return Done(False, {"where": "Decrypting phase"}, inherit_from = result)            
 
-            return done(True)
+            return Done(True)
         except Exception as e:
-            return done(False, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
+            return Done(False, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
         finally:
             if os.path.isfile(storage_path + ".download"):
                 os.remove(storage_path + ".download")
                 
     def match(self, params):
         if len(params) != 2:
-            return done(False, {"message": "Invalid input", "where": "Checking input"})
+            return Done(False, {"message": "Invalid input", "where": "Checking input"})
 
         proof_file_name = params[0].decode()
         destination_file_name = params[1].decode()
@@ -454,11 +454,11 @@ class Client(object):
             TIMER.end("match_comparing_phase")
 
             if similar_rate > 0.5:
-                return done(True, {"message": "Two image is similar (accuracy = {:.2f}%)".format(similar_rate * 100)})
+                return Done(True, {"message": "Two image is similar (accuracy = {:.2f}%)".format(similar_rate * 100)})
             else:
-                return done(True, {"message": "Two image is different (accuracy = {:2f}%)".format((1 - similar_rate) * 100)})
+                return Done(True, {"message": "Two image is different (accuracy = {:2f}%)".format((1 - similar_rate) * 100)})
         except Exception as e:
-            return done(False, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
+            return Done(False, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
         finally:
             if os.path.isfile(retrieve_file_name):
                 os.remove(retrieve_file_name)

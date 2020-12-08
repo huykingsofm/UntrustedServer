@@ -1,5 +1,5 @@
 import re
-from .done import done
+from .Done import Done
 
 class GROUP_CONST():
     CONST_GROUP_ID = ""
@@ -88,13 +88,13 @@ class RSPacket():
         else:
             packet_dict = RSPacket.extract(packet)
         if packet_dict["TYPE"] != expected_type:
-            return done(False, {
+            return Done(False, {
                 "message": "Invalid packet", 
                 "debug": CONST_TYPE.get_dict(invert= True)[packet_dict["TYPE"]]
                 })
             
         if packet_dict["STATUS"] != expected_status:
-            return done(False, {
+            return Done(False, {
                 "message": "Status has not been expected ({} instead of {})".format(
                     CONST_STATUS.get_dict(invert= True)[packet_dict["STATUS"]],
                     CONST_STATUS.get_dict(invert= True)[expected_status]
@@ -102,7 +102,7 @@ class RSPacket():
                 "debug": CONST_STATUS.get_dict(invert= True)[packet_dict["STATUS"]]
                 })
 
-        return done(True)
+        return Done(True)
 
 if __name__ == "__main__":
     print(CONST_TYPE.get_dict())
