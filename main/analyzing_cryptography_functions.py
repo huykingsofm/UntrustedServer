@@ -180,7 +180,7 @@ def engine(args):
         plt.ylabel("{} time (in seconds)".format(NAME_OF_FUNCTION))
         plt.xlabel("Size of data")
 
-        nticks = 5 if len(range(args.start_size, args.end_size + 1, args.step_size)) <= 10 else 10
+        nticks = 5
         mintick = args.start_size
         maxtick = max(range(args.start_size, args.end_size + 1, args.step_size))
         steptick = __round_int__((maxtick - mintick) // nticks, 1)

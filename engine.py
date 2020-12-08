@@ -27,7 +27,7 @@ def set_args(parser):
 def engine(args):
     check_condition(args)
 
-    if args.engine == "engine":  
+    if args.engine == "analyzing":  
         analyzing.engine(args)
 
     if args.engine == "config":
