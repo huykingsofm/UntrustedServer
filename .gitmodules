@@ -1,0 +1,9 @@
+[submodule "main/FileStorage"]
+	path = main/FileStorage
+	url = https://github.com/huykingsofm/FileStorage
+[submodule "main/SecureFTP"]
+	path = main/SecureFTP
+	url = https://github.com/huykingsofm/SecureFTP
+[submodule "main/FileEncryptor"]
+	path = main/FileEncryptor
+	url = https://github.com/huykingsofm/FileEncryptor
