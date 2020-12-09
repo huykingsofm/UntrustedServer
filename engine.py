@@ -2,7 +2,7 @@ import argparse
 
 import main.config as config
 import main.simulator as simulator
-import main.analyzing as analyzing
+import main.analysis as analysis
 
 def check_condition(args):
     if not hasattr(args, "engine"):
@@ -11,9 +11,9 @@ def check_condition(args):
 
 def set_args(parser):
     commands = parser.add_subparsers(title= "engine")
-    analyzing_command = commands.add_parser("analyzing")
-    analyzing_command.set_defaults(engine = "analyzing")
-    analyzing.set_args(analyzing_command)
+    analysis_command = commands.add_parser("analysis")
+    analysis_command.set_defaults(engine = "analysis")
+    analysis.set_args(analysis_command)
 
     config_command = commands.add_parser("config")
     config_command.set_defaults(engine = "config")
@@ -27,8 +27,8 @@ def set_args(parser):
 def engine(args):
     check_condition(args)
 
-    if args.engine == "analyzing":  
-        analyzing.engine(args)
+    if args.engine == "analysis":  
+        analysis.engine(args)
 
     if args.engine == "config":
         config.engine(args)

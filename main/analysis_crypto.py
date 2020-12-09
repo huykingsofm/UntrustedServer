@@ -177,15 +177,15 @@ def engine(args):
     if args.display:
         plt.plot(sizes, elapsed_time)
         plt.xticks(sizes[::4], sizes_in_str[::4])
-        plt.ylabel("{} time (in seconds)".format(NAME_OF_FUNCTION))
-        plt.xlabel("Size of data")
+        plt.ylabel("{} time (s)".format(NAME_OF_FUNCTION))
+        plt.xlabel("Size of data (MB)")
 
         nticks = 5
         mintick = args.start_size
         maxtick = max(range(args.start_size, args.end_size + 1, args.step_size))
         steptick = __round_int__((maxtick - mintick) // nticks, 1)
         ticks = range(mintick, maxtick + 1, steptick)
-        labelticks = ["{}MB".format(tick) for tick in ticks]
+        labelticks = ["{}".format(tick) for tick in ticks]
 
         plt.xticks(ticks, labelticks)
         plt.show()
