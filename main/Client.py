@@ -248,21 +248,6 @@ class Client(object):
             )
             TIMER.end("store_generating_temp_proof_phase")
 
-            # Generating proof file for future
-            TIMER.start("store_generating_proofs")
-            success = generate_proof_file(
-                n_proofs = self.__n_proofs__,
-                file_name= encrypted_file_name,
-                proof_file_name= proof_file_name,
-                n_blocks= self.__n_blocks__,
-                n_vblocks= self.__n_vblocks__,
-                key_size= self.__key_size__
-            )
-            if not success and os.path.isfile(proof_file_name):
-                os.remove(proof_file_name)
-
-            TIMER.end("store_generating_proofs")
-
             # Checking exist of file in server
             TIMER.start("store_checking_phase")
             result = self.check([temporary_proof_file_name.encode()])
@@ -314,6 +299,21 @@ class Client(object):
             TIMER.end("store_receiving_result")
             if result.value == False:
                 return Done(False, {"where": "Receiving reponse (success/failure) from server"}, inherit_from= result)
+            
+            # Generating proof file for future
+            TIMER.start("store_generating_proofs")
+            success = generate_proof_file(
+                n_proofs = self.__n_proofs__,
+                file_name= encrypted_file_name,
+                proof_file_name= proof_file_name,
+                n_blocks= self.__n_blocks__,
+                n_vblocks= self.__n_vblocks__,
+                key_size= self.__key_size__
+            )
+            TIMER.end("store_generating_proofs")
+            if not success and os.path.isfile(proof_file_name):
+                os.remove(proof_file_name)
+                return Done(False, {"message": "An error occurs when generating proof"})
 
             return Done(True)
         except Exception as e:
