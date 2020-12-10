@@ -261,7 +261,7 @@ class Client(object):
             ftp = SFTP(
                 address= ftp_address,
                 address_owner= "partner",
-                verbosities= ("error", "warning")
+                verbosities= ("error", )
             ) 
             ftp.as_sender(
                 file_name= encrypted_file_name,
@@ -408,7 +408,7 @@ class Client(object):
             ftp = SFTP(
                 address= ftp_address,
                 address_owner= "partner",
-                verbosities= ("error", "warning")
+                verbosities= ("error", )
             )
             ftp.as_receiver(
                 storage_path= storage_path + ".download",

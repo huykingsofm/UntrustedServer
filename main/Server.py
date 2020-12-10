@@ -119,7 +119,7 @@ class ResponseServer(object):
             ftp = SFTP(
                 address= ftp_address,
                 address_owner= "self",
-                verbosities= ("error", "warning")
+                verbosities= ("error", )
             )
             ftp.as_receiver(
                 storage_path= new_file_name,
@@ -253,7 +253,7 @@ class ResponseServer(object):
             ftp = SFTP(
                 address= ftp_address,
                 address_owner= "self",
-                verbosities= ("error", "warning")
+                verbosities= ("error", )
             )
             ftp.as_sender(
                 file_name= file_names[0],
