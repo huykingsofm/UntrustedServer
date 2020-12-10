@@ -7,6 +7,7 @@ from .create_file import FILE_NAME_FORMAT
 
 import matplotlib.pyplot as plt
 from scipy.stats.mstats import hmean, gmean
+from scipy.stats import variation
 from numpy import mean
 
 from .Timer import Timer
@@ -173,6 +174,8 @@ def engine(args):
         else:
             elapsed_time.append(hmean(tmp_elapsed_time))
         print("Elapsed time for {} of {} is {:.2f}s".format(NAME_OF_FUNCTION, file_name, elapsed_time[-1]))
+        print("-----------------------------------------------------------")
+        print("Variation of elapsed time is {}".format(variation(elapsed_time)))
 
     if args.display:
         plt.plot(sizes, elapsed_time)
