@@ -118,7 +118,8 @@ class ResponseServer(object):
             ftp_address = self.server_address[0], self.server_address[1] + 1
             ftp = SFTP(
                 address= ftp_address,
-                address_owner= "self"
+                address_owner= "self",
+                verbosities= ("error", "warning")
             )
             ftp.as_receiver(
                 storage_path= new_file_name,
@@ -251,7 +252,8 @@ class ResponseServer(object):
             ftp_address = self.server_address[0], self.server_address[1] + 1
             ftp = SFTP(
                 address= ftp_address,
-                address_owner= "self"
+                address_owner= "self",
+                verbosities= ("error", "warning")
             )
             ftp.as_sender(
                 file_name= file_names[0],
@@ -320,7 +322,7 @@ class ResponseServer(object):
                                 elapsed_time = TIMER.get(phase)
                                 total_time += elapsed_time
                                 self.__print__("Elapsed time for {}: {}s".format(phase, elapsed_time), "notification")
-                        self.__print__("Elapsed time for retrieving: {}s".format(total_time), "notification")
+                        self.__print__("Elapsed time for checking: {}s".format(total_time), "notification")
 
                     elif packet_dict["TYPE"] == CONST_TYPE.RETRIEVE:
                         self.retrieve(packet_dict)

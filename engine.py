@@ -3,6 +3,7 @@ import argparse
 import main.config as config
 import main.simulator as simulator
 import main.analysis as analysis
+import main.display as display
 
 def check_condition(args):
     if not hasattr(args, "engine"):
@@ -23,6 +24,9 @@ def set_args(parser):
     simulator_command.set_defaults(engine = "simulator")
     simulator.set_args(simulator_command)
     
+    display_command = commands.add_parser("display")
+    display_command.set_defaults(engine = "display")
+    display.set_args(display_command)
 
 def engine(args):
     check_condition(args)
@@ -35,6 +39,9 @@ def engine(args):
 
     if args.engine == "simulator":
         simulator.engine(args)
+
+    if args.engine == "display":
+        display.engine(args)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description= "A general tool of project")

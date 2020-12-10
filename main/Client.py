@@ -260,7 +260,8 @@ class Client(object):
             ftp_address = self.__server_address__[0], self.__server_address__[1] + 1
             ftp = SFTP(
                 address= ftp_address,
-                address_owner= "partner"
+                address_owner= "partner",
+                verbosities= ("error", "warning")
             ) 
             ftp.as_sender(
                 file_name= encrypted_file_name,
@@ -406,7 +407,8 @@ class Client(object):
             ftp_address = self.__server_address__[0], self.__server_address__[1] + 1
             ftp = SFTP(
                 address= ftp_address,
-                address_owner= "partner"
+                address_owner= "partner",
+                verbosities= ("error", "warning")
             )
             ftp.as_receiver(
                 storage_path= storage_path + ".download",
