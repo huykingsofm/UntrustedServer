@@ -1,6 +1,7 @@
 import re
 import os
 import time
+import struct
 import random
 import socket
 import base64
@@ -100,15 +101,17 @@ def __try_decrypting_file__(file_name, new_file_name):
     return Done(True)
 
 
-def generate_proof_file(n_proofs, file_name, proof_file_name, n_blocks, length_of_key):
+def generate_proof_file(n_proofs, file_name, proof_file_name, n_blocks, n_vblocks, key_size):
     try:
         file_size = os.path.getsize(file_name)
         nbytes_per_block = int(file_size / n_blocks)
         last_bytes = File.get_elements_at_the_end(file_name, N_BYTES_FOR_IDENTIFYING_PATH)
+
         proof_file = open(proof_file_name, "wb")
         proof_file.write(int(0).to_bytes(SIZE_OF_INT, "big"))           # position of next unused proof (4 bytes)
         proof_file.write(n_blocks.to_bytes(SIZE_OF_INT, "big"))         # the number of blocks (4 bytes)
-        proof_file.write(length_of_key.to_bytes(1, "big"))              # length of key (1 byte)
+        proof_file.write(n_vblocks.to_bytes(SIZE_OF_INT, "big"))        # the number of verification blocks (4 bytes)
+        proof_file.write(key_size.to_bytes(1, "big"))                   # length of key (1 byte)
         proof_file.write(hashlib.sha1().digest_size.to_bytes(1, "big")) # digest size of hash function (1 byte)
         proof_file.write(len(last_bytes).to_bytes(SIZE_OF_INT, "big"))  # length of last bytes of file (4 bytes)
         proof_file.write(file_size.to_bytes(SIZE_OF_INT, "big"))        # file size (4 bytes)
@@ -117,13 +120,22 @@ def generate_proof_file(n_proofs, file_name, proof_file_name, n_blocks, length_o
         file = open(file_name, "rb")
         for _ in range(n_proofs):
             file.seek(0, FileUtils.FROM_START)
-            random_key = os.urandom(length_of_key)
+            random_key = os.urandom(key_size)
             proof_file.write(random_key)
-            for _ in range(n_blocks):
+
+            positions = sorted(random.sample(range(n_blocks), n_vblocks))
+            to_bytes = lambda x: int.to_bytes(x, SIZE_OF_INT, "big")
+            positions_in_bytes = b"".join(map(to_bytes, positions))
+            proof_file.write(positions_in_bytes)
+
+            old_position = 0
+            for position in positions:
+                file.seek((position - old_position) * nbytes_per_block, FileUtils.FROM_CUR)
                 content = random_key + file.read(nbytes_per_block)
                 hashvalue = hashlib.sha1(content).digest()
-
                 proof_file.write(hashvalue)
+                old_position = position + 1
+
         file.close()
         proof_file.close()
         return True
@@ -132,53 +144,73 @@ def generate_proof_file(n_proofs, file_name, proof_file_name, n_blocks, length_o
 
 def extract_proof_file(proof_file_name):
     proof_file = open(proof_file_name, "rb")
-    proof_file.seek(4 * 2 + 2, FileUtils.FROM_START)
-    
-    length_of_last_bytes = int().from_bytes(proof_file.read(SIZE_OF_INT), "big")
-    file_size = int().from_bytes(proof_file.read(SIZE_OF_INT), "big")
-    last_bytes = proof_file.read(length_of_last_bytes)
-
-    return file_size, last_bytes
-
-def read_proofs(proof_file_name, blocks_list):
-    proof_file = open(proof_file_name, "r+b")
-
-    position_of_proof = int().from_bytes(proof_file.read(SIZE_OF_INT), "big")
-    n_blocks = int().from_bytes(proof_file.read(SIZE_OF_INT), "big")
-    length_of_key = int().from_bytes(proof_file.read(1), "big")
-    length_of_digest = int().from_bytes(proof_file.read(1), "big")
-    length_of_last_bytes = int().from_bytes(proof_file.read(SIZE_OF_INT), "big")
-
-    start_byte = SIZE_OF_INT * 4 + 2 + length_of_last_bytes # ignore header 
-    start_byte += (length_of_key + length_of_digest * n_blocks) * position_of_proof
-
-    proof_file.seek(start_byte, FileUtils.FROM_START)
-    key = proof_file.read(length_of_key)
-
-    proofs = []
-    last_position_of_block = 0
-    for position_of_block in blocks_list:
-        if last_position_of_block > position_of_block:
-            raise Exception("Block list must have ascending order")
-
-        offset = (position_of_block - last_position_of_block) * length_of_digest
-        proof_file.seek(offset, FileUtils.FROM_CUR)
-
-        digest = proof_file.read(length_of_digest)
-        proofs.append(digest)
-
-        last_position_of_block = position_of_block + 1
-
-    proof_file.seek(0, FileUtils.FROM_START) # return to begin of the proof file and ...
-    proof_file.write(int(position_of_proof + 1).to_bytes(4, "big")) # rewrite position of next unused proof
+    current_proof, n_blocks, n_vblocks, key_size, digest_size, last_bytes_size, file_size = struct.unpack(
+        ">IIIBBII",
+        proof_file.read(4 + 4 + 4 + 1 + 1 + 4 + 4)
+    )
+    last_bytes = proof_file.read(last_bytes_size)
     proof_file.close()
 
-    return key, proofs
+    ret_dict = {
+        "current_proof": current_proof,
+        "n_blocks": n_blocks,
+        "n_vblocks": n_vblocks,
+        "key_size": key_size,
+        "digest_size": digest_size,
+        "file_size": file_size,
+        "last_bytes_size": last_bytes_size,
+        "last_bytes": last_bytes
+        }
+
+    return ret_dict
+
+def read_proofs(proof_file_name, proof_dict = None):
+    if not proof_dict:
+        proof_dict = extract_proof_file(proof_file_name)
+
+    proof_file = open(proof_file_name, "r+b")
+    start_byte = SIZE_OF_INT * 5 + 2 + proof_dict["last_bytes_size"] # ignore header 
+    start_byte += \
+        (
+            proof_dict["key_size"] 
+            + SIZE_OF_INT * proof_dict["n_vblocks"]
+            + proof_dict["digest_size"] * proof_dict["n_vblocks"]
+        ) * proof_dict["current_proof"]
+
+    proof_file.seek(start_byte, FileUtils.FROM_START)
+    key = proof_file.read(proof_dict["key_size"])
+    position_of_vblocks = struct.unpack(
+        ">" + "I" * proof_dict["n_vblocks"], # ">IIII...."
+        proof_file.read(SIZE_OF_INT * proof_dict["n_vblocks"])
+        )
+
+    proof_of_vblocks = []
+    for _ in range(proof_dict["n_vblocks"]):
+        digest = proof_file.read(proof_dict["digest_size"])
+        proof_of_vblocks.append(digest)
+
+    proof_file.seek(0, FileUtils.FROM_START) # return to begin of the proof file and ...
+    proof_file.write(int(proof_dict["current_proof"] + 1).to_bytes(SIZE_OF_INT, "big")) # rewrite position of next unused proof
+    proof_file.close()
+
+    return key, position_of_vblocks, proof_of_vblocks
 
 class Client(object):
-    def __init__(self, server_address, verbosities = ("error", )):
+    def __init__(self, 
+            server_address,
+            n_blocks = DEFAULT_N_BLOCKS,
+            n_vblocks = DEFAULT_N_VERIFIED_BLOCKS,
+            n_proofs = DEFAULT_N_PROOFS,
+            key_size = DEFAULT_LENGTH_OF_KEY,
+            verbosities = ("error", )
+        ):
         self.__server_address__ = server_address
         self.socket = STCPSocket()
+
+        self.__n_blocks__ = n_blocks
+        self.__n_vblocks__ = n_vblocks
+        self.__n_proofs__ = n_proofs
+        self.__key_size__ = key_size
 
         self.__print__ = StandardPrint(f"Client connect to {server_address}", verbosities)
         self.__no_input__ = False
@@ -210,19 +242,21 @@ class Client(object):
                 n_proofs = 1, 
                 file_name= encrypted_file_name,
                 proof_file_name= temporary_proof_file_name,
-                n_blocks= DEFAULT_N_BLOCKS,
-                length_of_key= DEFAULT_LENGTH_OF_KEY
+                n_blocks= self.__n_blocks__,
+                n_vblocks = self.__n_vblocks__,
+                key_size= self.__key_size__
             )
             TIMER.end("store_generating_temp_proof_phase")
 
             # Generating proof file for future
             TIMER.start("store_generating_proofs")
             success = generate_proof_file(
-                n_proofs = DEFAULT_N_PROOFS,
+                n_proofs = self.__n_proofs__,
                 file_name= encrypted_file_name,
                 proof_file_name= proof_file_name,
-                n_blocks= DEFAULT_N_BLOCKS,
-                length_of_key= DEFAULT_LENGTH_OF_KEY
+                n_blocks= self.__n_blocks__,
+                n_vblocks= self.__n_vblocks__,
+                key_size= self.__key_size__
             )
             if not success and os.path.isfile(proof_file_name):
                 os.remove(proof_file_name)
@@ -297,23 +331,22 @@ class Client(object):
             return Done(False, {"message": "Invalid parameters", "debug": proof_file_name})
 
         try:
-            file_size, last_bytes = extract_proof_file(proof_file_name)
-            file_size_in_bytes = file_size.to_bytes(SIZE_OF_INT, "big")
-
-            n_pos_to_check = random.randint(DEFAULT_N_VERIFIED_BLOCKS - 3, DEFAULT_N_VERIFIED_BLOCKS + 3)
+            proof_dict = extract_proof_file(proof_file_name)
+            file_size_in_bytes = proof_dict["file_size"].to_bytes(SIZE_OF_INT, "big")
             
-            positions = sorted(random.sample(range(DEFAULT_N_BLOCKS), n_pos_to_check))
+            key, positions, proofs = read_proofs(proof_file_name, proof_dict)
+            
             to_bytes = lambda x: int.to_bytes(x, SIZE_OF_INT, "big")
             positions_in_bytes = b"".join(map(to_bytes, positions))
             
-            key, proofs = read_proofs(proof_file_name, positions)
-
+            
             data = b""
             data += file_size_in_bytes
             data += len(key).to_bytes(SIZE_OF_INT, "big")
             data += key
-            data += len(last_bytes).to_bytes(SIZE_OF_INT, "big")
-            data += last_bytes
+            data += proof_dict["last_bytes_size"].to_bytes(SIZE_OF_INT, "big")
+            data += proof_dict["last_bytes"]
+            data += proof_dict["n_blocks"].to_bytes(SIZE_OF_INT, "big")
             data += len(positions).to_bytes(SIZE_OF_INT, "big")
             data += positions_in_bytes
 
@@ -335,10 +368,10 @@ class Client(object):
             # Generating challenge packet and sending it to server
             TIMER.start("check_generating_challenge_packet")
             result = self.__generate_challenge_packet__(proof_file_name)
-            proofs = result.proofs
             TIMER.end("check_generating_challenge_packet")
             if result.value == None:
                 return Done(False, {"where": "Generate challenge packet"}, inherit_from= result)
+            proofs = result.proofs
 
             TIMER.start("check_sending_challenge_packet")
             self.__node__.send(self.__forwarder__.name, result.value)
@@ -383,15 +416,15 @@ class Client(object):
                 return Done(False, {"where": "checking phase"}, result)
 
             # Sending request packet
-            TIMER.start("retrive_send_request")
+            TIMER.start("retrieve_send_request")
             packet = RSPacket(
                 packet_type= CONST_TYPE.RETRIEVE,
                 status= CONST_STATUS.REQUEST
             )
-            file_size, last_bytes = extract_proof_file(proof_file_name)
-            packet.set_data(file_size.to_bytes(SIZE_OF_INT, "big") + last_bytes)
+            proof_dict = extract_proof_file(proof_file_name)
+            packet.set_data(proof_dict["file_size"].to_bytes(SIZE_OF_INT, "big") + proof_dict["last_bytes"])
             self.__node__.send(self.__forwarder__.name, packet.create())
-            TIMER.end("retrive_send_request")
+            TIMER.end("retrieve_send_request")
 
             # Receiving response (accept/deny retrieving request) from server
             TIMER.start("retrieve_wait_for_accept")
@@ -484,7 +517,7 @@ class Client(object):
         ]
         retrieve_phases = [
             "retrieve_checking_phase",
-            "retrive_send_request",
+            "retrieve_send_request",
             "retrieve_wait_for_accept",
             "retrieve_download_phase",
             "retrieve_decrypting_phase"

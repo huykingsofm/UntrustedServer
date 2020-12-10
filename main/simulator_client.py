@@ -1,5 +1,6 @@
 import argparse
 from .Client import Client
+from .constant import DEFAULT_LENGTH_OF_KEY, DEFAULT_N_BLOCKS, DEFAULT_N_PROOFS, DEFAULT_N_VERIFIED_BLOCKS
 
 def set_args(parser):
     parser.add_argument(
@@ -15,6 +16,32 @@ def set_args(parser):
         help = "Port of server storage service (4499 is default)",
         default = 4499,
         type = int
+    )
+
+    proof_group = parser.add_argument_group("Proof")
+    proof_group.add_argument(
+        "--n-blocks",
+        help= "The number of blocks in precomputed proofs",
+        default= DEFAULT_N_BLOCKS,
+        type= int
+    )
+    proof_group.add_argument(
+        "--n-vblocks",
+        help= "The number of blocks which you want server to prove",
+        default= DEFAULT_N_VERIFIED_BLOCKS,
+        type= int
+    )
+    proof_group.add_argument(
+        "--n-proofs",
+        help= "The number of precomputed proofs",
+        default= DEFAULT_N_PROOFS,
+        type= int
+    )
+    proof_group.add_argument(
+        "--key-size",
+        help= "The size of signal number/key length",
+        default= DEFAULT_LENGTH_OF_KEY,
+        type= int
     )
 
     verbosities_group = parser.add_argument_group("Verbosity")
@@ -38,7 +65,9 @@ def set_args(parser):
     )
 
 def check_condition(args):
-    pass
+    if args.n_blocks <= 0 or args.n_proofs <= 0 or args.n_vblocks <= 0 or args.key_size <= 0:
+        print("Proof arguments must be the positive numbers")
+        exit(0)
 
 def engine(args):
     check_condition(args)
@@ -51,7 +80,14 @@ def engine(args):
         verbosities.append("notification")
     verbosities = tuple(verbosities)
 
-    client = Client((args.ipaddress, args.port), verbosities = verbosities)
+    client = Client(
+        server_address= (args.ipaddress, args.port), 
+        n_blocks= args.n_blocks,
+        n_vblocks= args.n_vblocks,
+        n_proofs = args.n_proofs,
+        key_size = args.key_size,
+        verbosities = verbosities
+        )
     client.start()
 
 if __name__ == "__main__":

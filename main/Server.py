@@ -54,7 +54,6 @@ def prove_proofs(file_name, max_n_blocks, blocks_list, key):
         offset = (position_of_block - last_position_of_block) * block_size
         file.seek(offset, FileUtils.FROM_CUR)
         block = file.read(block_size)
-
         digest = hashlib.sha1(key + block).digest()
         proofs.append(digest)
 
@@ -164,6 +163,9 @@ class ResponseServer(object):
             identifier = data[p : p + len_identifier]
             p = p + len_identifier
             
+            n_blocks = int.from_bytes(data[p : p + SIZE_OF_INT], "big")
+            p = p + SIZE_OF_INT
+
             n_positions = int.from_bytes(data[p : p + SIZE_OF_INT], "big")
             p = p + SIZE_OF_INT
             
@@ -183,7 +185,7 @@ class ResponseServer(object):
             STATUS = CONST_STATUS.NOT_FOUND
             if len(file_names) == 1:
                 STATUS = CONST_STATUS.FOUND
-                proofs = prove_proofs(file_names[0], DEFAULT_N_BLOCKS, positions, key)
+                proofs = prove_proofs(file_names[0], n_blocks, positions, key)
             
             TIMER.end("check_generating_proof")
             packet = RSPacket(
@@ -312,7 +314,7 @@ class ResponseServer(object):
                                 elapsed_time = TIMER.get(phase)
                                 total_time += elapsed_time
                                 self.__print__("Elapsed time for {}: {}s".format(phase, elapsed_time), "notification")
-                        self.__print__("Elapsed time for retrieving: {}s".format(total_time), "notification")
+                        self.__print__("Elapsed time for storing: {}s".format(total_time), "notification")
 
                     elif packet_dict["TYPE"] == CONST_TYPE.CHECK:
                         self.check(packet_dict)
