@@ -1,10 +1,7 @@
 import os
-import time
 import errno
-import random
 import hashlib
 import threading
-import functools
 
 from .Timer import Timer
 from .Done import Done
@@ -16,10 +13,9 @@ from .SecureFTP import __hash_a_file__
 from .SecureFTP import LocalNode, ForwardNode
 from .SecureFTP import NoCipher, XorCipher, AES_CTR
 
-from .FileStorage import FileStorage, File, MAX_BUFFER, FileUtils
+from .FileStorage import FileStorage, FileUtils
 
 from .constant import SIZE_OF_INT
-from .constant import DEFAULT_LENGTH_OF_KEY, DEFAULT_N_BLOCKS
 
 from .RemoteStoragePacketFormat import RSPacket, CONST_STATUS, CONST_TYPE
 
@@ -28,45 +24,51 @@ LISTEN_SERVER_NAME = "LISTEN_SERVER_NAME"
 
 TIMER = Timer()
 
-def __split_to_n_part__(s, length_each_part):
-    length = len(s)
-    padding = b"\n" * (length - (length // length_each_part) * length_each_part)
+def __split_to_n_part__(s, size_each_part):
+    size = len(s)
+    padding = b"\n" * (size - (size // size_each_part) * size_each_part)
     s += padding
-    for i in range(0, length, length_each_part):
-        yield s[i: i + length_each_part]
+    for i in range(0, size, size_each_part):
+        yield s[i: i + size_each_part]
 
 
-def prove_proofs(file_name, max_n_blocks, blocks_list, key):
-    file = open(file_name, "rb")
+def prove_proofs(file_name, max_n_blocks, blocks_list, signal_number):
+    try:
+        file = open(file_name, "rb")
 
-    if max(blocks_list) >= max_n_blocks:
-        raise Exception("There some incorrect block in block list")
+        if max(blocks_list) >= max_n_blocks:
+            raise Exception("There some incorrect block in block list")
 
-    file_size = os.path.getsize(file_name)
-    block_size = int(file_size / max_n_blocks)
+        file_size = os.path.getsize(file_name)
+        block_size = int(file_size / max_n_blocks)
 
-    last_position_of_block = 0
-    proofs = []
-    for position_of_block in blocks_list:
-        if last_position_of_block > position_of_block:
-            raise Exception("Block list must have ascending order")
+        last_position_of_block = 0
+        proofs = []
+        for position_of_block in blocks_list:
+            if last_position_of_block > position_of_block:
+                raise Exception("Block list must have ascending order")
 
-        offset = (position_of_block - last_position_of_block) * block_size
-        file.seek(offset, FileUtils.FROM_CUR)
-        block = file.read(block_size)
-        digest = hashlib.sha1(key + block).digest()
-        proofs.append(digest)
+            offset = (position_of_block - last_position_of_block) * block_size
+            file.seek(offset, FileUtils.FROM_CUR)
+            block = file.read(block_size)
+            digest = hashlib.sha1(signal_number + block).digest()
+            proofs.append(digest)
 
-        last_position_of_block = position_of_block + 1
+            last_position_of_block = position_of_block + 1
 
-    file.close()
+        file.close()
 
-    return proofs
+        return Done(proofs, {"user": {"notification": "Proving the data integrity completes"}})
+    except Exception as e:
+        return Done(False, {
+                "user": {"error": "Proving the data integrity occurs an unknown error"},
+                "dev": {"error": repr(e)}
+                })
 
 FILE_STORAGE = FileStorage("Storage", n_splits= 100)
 
 class ResponseServer(object):
-    def __init__(self, socket:STCPSocket, client_address, server_address, verbosities: tuple = ("error", )):
+    def __init__(self, socket:STCPSocket, client_address, server_address, verbosities: tuple = {"user": ["error"], "dev": ["error", "warning"]}):
         self.socket = socket
         self.client_address = client_address
         self.server_address = server_address
@@ -92,7 +94,7 @@ class ResponseServer(object):
         TIMER.end("store_packet_checking")
 
         if result.value == False:
-            return Done(False, {"where": "Receiving request store packet"}, inherit_from = result)
+            return Done(False, inherit_from = result)
 
         try:
             TIMER.start("store_create_new_path")
@@ -106,7 +108,9 @@ class ResponseServer(object):
                 packet_type= CONST_TYPE.STORE,
                 status= CONST_STATUS.DENY
             )
-            return Done(False, {"message": "Wrong in create file name", "where": "Find path to storing", "debug": repr(e)})
+            return Done(False, 
+                {"user": {"error": "Some error occurs when create new path for stored file"},
+                 "dev": {"error": repr(e)}})
         finally:
             TIMER.end("store_create_new_path")
             self.__node__.send(self.forwarder.name, packet.create())
@@ -118,7 +122,7 @@ class ResponseServer(object):
             ftp = SFTP(
                 address= ftp_address,
                 address_owner= "self",
-                verbosities= ("error", )
+                verbosities= {"user": ["error"], "dev": ["error"]}
             )
             ftp.as_receiver(
                 storage_path= new_file_name,
@@ -141,11 +145,15 @@ class ResponseServer(object):
                 status= STATUS
             )
             self.__node__.send(self.forwarder.name, packet.create())
+            return Done(True, {"user": {"notification": "Storing file is successful"}})
         except Exception as e:
-            return Done(False, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
+            return Done(False, 
+                {"user": {"error": "Storing file fails (unknown error)"},
+                 "dev": {"error": repr(e)}})
 
     def __generate_reply_packet_for_checking__(self, data):
         try:
+            TIMER.start("check_extract_request")
             p = 0
             
             file_size = int.from_bytes(data[p : p + SIZE_OF_INT], "big")
@@ -171,23 +179,29 @@ class ResponseServer(object):
             
             positions = data[p : p + n_positions * SIZE_OF_INT]
             p = p + n_positions * SIZE_OF_INT
-            
+            TIMER.end("check_extract_request")
+
             if p != len(data):
-                return Done(None, {"message": "Invalid packet"})
+                return Done(None, 
+                    {"user": {"warning": "The packet of requesting checking is invalid"}})
 
+            TIMER.start("check_get_file_info")
             to_int = lambda x: int.from_bytes(x, "big")
-            positions = list(map(to_int, __split_to_n_part__(positions, length_each_part= SIZE_OF_INT)))
-
+            positions = list(map(to_int, __split_to_n_part__(positions, size_each_part= SIZE_OF_INT)))
             check_size = lambda file_name: os.path.getsize(file_name) == file_size
             file_names = list(filter(check_size, FILE_STORAGE.iter(identifier)))
+            TIMER.end("check_get_file_info")
 
-            TIMER.start("check_generating_proof")
             STATUS = CONST_STATUS.NOT_FOUND
             if len(file_names) == 1:
+                TIMER.start("check_generating_proof")
                 STATUS = CONST_STATUS.FOUND
-                proofs = prove_proofs(file_names[0], n_blocks, positions, key)
-            
-            TIMER.end("check_generating_proof")
+                result = prove_proofs(file_names[0], n_blocks, positions, key)
+                if result.value == None:
+                    return result
+                proofs = result.value
+                TIMER.end("check_generating_proof")
+
             packet = RSPacket(
                 packet_type= CONST_TYPE.CHECK,
                 status= STATUS
@@ -197,21 +211,26 @@ class ResponseServer(object):
             else:
                 packet.set_data(len(file_names).to_bytes(2, "big"))
             
-            return Done(packet.create(), {"status": STATUS})
+            return Done(packet.create(), 
+                {"user": {"notification": "Generating reply packet is successful"}}, 
+                {"status": STATUS}
+                )
         except Exception as e:
-            return Done(None, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
+            return Done(None, 
+                {"user": {"error": "Generating reply packet fails (unknown error)"},
+                 "dev": {"error": repr(e)}})
 
     def check(self, packet_dict):
         result = self.__generate_reply_packet_for_checking__(packet_dict["DATA"])
         if result.value == None:
-            return Done(False, {"where": "Generate reply packet"}, inherit_from = result)
+            return Done(False, inherit_from = result)
 
         self.__node__.send(self.forwarder.name, result.value)
         
         if result.status == CONST_STATUS.FOUND:
-            return Done(True)
+            return Done(True, {"user": {"notification": "File is found"}})
         else:
-            return Done(False, {"message": "File not found"})
+            return Done(False, {"user": {"notification": "File is not found"}})
 
     def retrieve(self, packet_dict):
         try:
@@ -224,7 +243,7 @@ class ResponseServer(object):
             )
             TIMER.end("retrieve_checking_phase")
             if result.value == False:
-                return Done(False, {"where": "Check input packet"}, inherit_from = result)
+                return Done(False, inherit_from = result)
 
             TIMER.start("retrieve_get_file_information")
             file_size = int.from_bytes(packet_dict["DATA"][ : SIZE_OF_INT], "big")
@@ -248,14 +267,14 @@ class ResponseServer(object):
             self.__node__.send(self.forwarder.name, packet.create())
 
             if STATUS == CONST_STATUS.DENY:
-                return Done(False, {"message": "Retrived data is {}-found".format(len(file_names))})
+                return Done(False, {"user": {"warning": "Retrived data is {}-found".format(len(file_names))}})
 
             TIMER.start("retrieve_transport_file")
             ftp_address = self.server_address[0], self.server_address[1] + 1
             ftp = SFTP(
                 address= ftp_address,
                 address_owner= "self",
-                verbosities= ("error", )
+                verbosities= {"user": ["error"], "dev": ["error"]}
             )
             ftp.as_sender(
                 file_name= file_names[0],
@@ -266,20 +285,24 @@ class ResponseServer(object):
             TIMER.end("retrieve_transport_file")
 
             if success:
-                return Done(True)
+                return Done(True, {"user": {"notification": "Retrieving file is successful"}})
             else:
-                return Done(False, {"message": "Error in ftp", "where": "Transport file"})
+                return Done(False, {"user": {"warning": "Error in SFTP"}})
         except Exception as e:
-            return Done(False, {"message": "Something wrong", "where": "Unknown", "debug": repr(e)})
+            return Done(False, 
+                {"user": {"error": "Retrieving file fails (unknown error)"},
+                 "dev": {"error": repr(e)}})
 
     def start(self):
-        self.__print__("Start reponse...", "notification")
+        self.__print__("user", "notification", "Start reponse...")
         store_phases = [
             "store_packet_checking",
             "store_create_new_path",
             "store_get_uploaded_file"
         ]
         check_phases = [
+            "check_extract_request",
+            "check_get_file_info",
             "check_generating_proof"
         ]
         retrieve_phases = [
@@ -293,62 +316,68 @@ class ResponseServer(object):
                 source, data, _ = self.__node__.recv()
                 if source == None:
                     self.socket.sendall(b"$test alive")
-                    # if connection is alive, ignore error and continue
-                    self.__print__("Something wrong, source = None", "warning")
+                    # if connection is alive, ignore error, print a warning and continue
+                    self.__print__("dev", "warning", "Something error when socket is None but it still connects")
                     continue
             except Exception as e:
                 if e.args[0] in (errno.ENOTSOCK, errno.ECONNREFUSED, errno.ECONNRESET, errno.EBADF):
-                    self.__print__("Connection closed", "warning")
-                    break
-                raise e
+                    self.__print__("dev", "warning", "Connection closed")
+                else:
+                    self.__print__("dev", "error", "Some error occurs when receving data from LocalNode")
+                break
+                
 
             packet_dict = RSPacket.extract(data)
 
             if source == self.forwarder.name:
                 try:
                     if packet_dict["TYPE"] == CONST_TYPE.STORE:
-                        self.store(packet_dict)
+                        result = self.store(packet_dict)
+                        self.__print__.use_dict(result.print_dict)
                         total_time = 0
                         for phase in store_phases:
                             if TIMER.check(phase):
                                 elapsed_time = TIMER.get(phase)
                                 total_time += elapsed_time
-                                self.__print__("Elapsed time for {}: {}s".format(phase, elapsed_time), "notification")
-                        self.__print__("Elapsed time for storing: {}s".format(total_time), "notification")
+                                self.__print__("user", "notification", "Elapsed time for {}: {}s".format(phase, elapsed_time))
+                        self.__print__("user", "notification", "Elapsed time for storing: {}s".format(total_time))
 
                     elif packet_dict["TYPE"] == CONST_TYPE.CHECK:
-                        self.check(packet_dict)
+                        result = self.check(packet_dict)
+                        self.__print__.use_dict(result.print_dict)
                         total_time = 0
                         for phase in check_phases:
                             if TIMER.check(phase):
                                 elapsed_time = TIMER.get(phase)
                                 total_time += elapsed_time
-                                self.__print__("Elapsed time for {}: {}s".format(phase, elapsed_time), "notification")
-                        self.__print__("Elapsed time for checking: {}s".format(total_time), "notification")
+                                self.__print__("user", "notification", "Elapsed time for {}: {}s".format(phase, elapsed_time))
+                        self.__print__("user", "notification", "Elapsed time for checking: {}s".format(total_time))
 
                     elif packet_dict["TYPE"] == CONST_TYPE.RETRIEVE:
-                        self.retrieve(packet_dict)
+                        result = self.retrieve(packet_dict)
+                        self.__print__.use_dict(result.print_dict)
                         total_time = 0
                         for phase in retrieve_phases:
                             if TIMER.check(phase):
                                 elapsed_time = TIMER.get(phase)
                                 total_time += elapsed_time
-                                self.__print__("Elapsed time for {}: {}s".format(phase, elapsed_time), "notification")
-                        self.__print__("Elapsed time for retrieving: {}s".format(total_time), "notification")
+                                self.__print__("user", "notification", "Elapsed time for {}: {}s".format(phase, elapsed_time))
+                        self.__print__("user", "notification", "Elapsed time for retrieving: {}s".format(total_time))
                     else:
-                        self.__print__("Invalid command", "warning")
+                        self.__print__("user", "notification", "Invalid command")
                 except Exception as e:
-                    self.__print__(repr(e), "error")
+                    self.__print__("user", "error", "Unknown error occurs when receiving data from LocalNode")
+                    self.__print__("dev", "error", repr(e))
                     break
             else:
-                self.__print__("Invalid source of packet", "warning")
+                self.__print__("user", "warning", "Invalid source of packet")
 
-        self.__print__("End response...", "notification")
+        self.__print__("user", "notification", "End response...")
         self.__node__.send(SERVER_MANAGER_NAME, b"$leave")
 
 
 class ServerManager(object):
-    def __init__(self, max_clients, address, verbosities: tuple = ("error", )):
+    def __init__(self, max_clients, address, verbosities: tuple = {"user": ["error"], "dev": ["error", "warning"]}):
         self.max_clients = max_clients
         self.clients = [None] * self.max_clients
 
@@ -356,13 +385,15 @@ class ServerManager(object):
 
         self.__node__ = LocalNode(name= SERVER_MANAGER_NAME)
         self.__print__ = StandardPrint("ServerManager", verbosities)
+        self.__verbosities__ = verbosities
 
     def start(self):
         while True:
             try:
                 source, message, obj = self.__node__.recv()
             except Exception as e:
-                self.__print__(repr(e), "error")
+                self.__print__("user", "error", "Something error in receiving at ServerManager")
+                self.__print__("dev", "error", repr(e))
                 break
 
             if message == b"$leave":
@@ -372,7 +403,7 @@ class ServerManager(object):
                         self.leave(client)
                         leave = True
                 if not leave:
-                    self.__print__(f"Client {source} cannot leave", "error")
+                    self.__print__("user", "error", f"Client {source} cannot leave")
                 continue
 
             if source == LISTEN_SERVER_NAME and b"$join" in message:
@@ -400,7 +431,7 @@ class ServerManager(object):
         except:
             return None
 
-        socketbase = ResponseServer(socket, address, self.address, ("notification", "warning", "error"))
+        socketbase = ResponseServer(socket, address, self.address, self.__verbosities__)
         self.clients[slot] = socketbase
         return socketbase
 
@@ -411,7 +442,7 @@ class ServerManager(object):
 
 
 class ListenServer(object):
-    def __init__(self, address, server_manager: ServerManager, verbosities = ("error", )):
+    def __init__(self, address, server_manager: ServerManager, verbosities = {"user": ["error"], "dev": ["error", "warning"]}):
         self.socket = STCPSocket()
         self.address = address
         self.base = server_manager
@@ -424,7 +455,8 @@ class ListenServer(object):
             try:
                 source, message, obj = self.__node__.recv()
             except Exception as e:
-                self.__print__(repr(e), "error")
+                self.__print__("user", "error", "Unknown error occurs when receiving in LocalNode")
+                self.__print__("dev", "error", repr(e))
                 return False
 
             if source == SERVER_MANAGER_NAME and message == b"$join return":

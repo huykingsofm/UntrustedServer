@@ -101,9 +101,9 @@ def engine(args):
         args.ylabel = " ".join(args.ylabel)
 
     if args.xarray:
-        plt.plot(args.xarray, args.yarray)
+        plt.plot(args.xarray, args.yarray, marker = "s")
     else:
-        plt.plot(args.yarray)
+        plt.plot(args.yarray, marker = "s")
 
     if args.xlabel:
         plt.xlabel(args.xlabel)
@@ -122,8 +122,6 @@ def engine(args):
         plt.yticks(args.yticks)
 
     plt.show()
-
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description= "A tool for display the array as a figure")

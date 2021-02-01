@@ -1,5 +1,4 @@
 import os
-import socket
 import argparse
 
 from . import create_file
@@ -13,11 +12,10 @@ from numpy import mean
 from .Timer import Timer
 from .Client import __hash_a_file__
 from .Client import __try_encrypting_file__, __try_decrypting_file__
-from .Client import KEY, IV
 
 def __round_int__(number, digit):
-    unit = number % 10 ** digit
-    if unit >= 5 * 10 ** (digit - 1):
+    unit = number % (10 ** digit)
+    if unit >= 5 * (10 ** (digit - 1)):
         number = number - unit + 10 ** digit
     else:
         number = number - unit
@@ -117,7 +115,7 @@ def check_condition(args):
         result = create_file.__check_free_space__(args.start_size, args.end_size, args.step_size)
 
     if result == 2:
-        print("Not enough for creating file")
+        print("Not enough space for creating file")
         exit(1)
     
     if result == 1:
@@ -174,8 +172,8 @@ def engine(args):
         else:
             elapsed_time.append(hmean(tmp_elapsed_time))
         print("Elapsed time for {} of {} is {:.2f}s".format(NAME_OF_FUNCTION, file_name, elapsed_time[-1]))
-        print("-----------------------------------------------------------")
         print("Variation of elapsed time is {}".format(variation(elapsed_time)))
+        print("-----------------------------------------------------------")
 
     if args.display:
         plt.plot(sizes, elapsed_time)

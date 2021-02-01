@@ -1,6 +1,6 @@
 import argparse
 from .Client import Client
-from .constant import DEFAULT_LENGTH_OF_KEY, DEFAULT_N_BLOCKS, DEFAULT_N_PROOFS, DEFAULT_N_VERIFIED_BLOCKS
+from .constant import DEFAULT_SIZE_OF_SIGNAL_NUMBER, DEFAULT_N_BLOCKS, DEFAULT_N_PROOFS, DEFAULT_N_VERIFIED_BLOCKS
 
 def set_args(parser):
     parser.add_argument(
@@ -40,7 +40,7 @@ def set_args(parser):
     proof_group.add_argument(
         "--key-size",
         help= "The size of signal number/key length",
-        default= DEFAULT_LENGTH_OF_KEY,
+        default= DEFAULT_SIZE_OF_SIGNAL_NUMBER,
         type= int
     )
 
@@ -71,14 +71,16 @@ def check_condition(args):
 
 def engine(args):
     check_condition(args)
-    verbosities = []
+    verbosities = {
+        "user": [],
+        "dev": ["error", "warning"]
+    }
     if args.error:
-        verbosities.append("error")
+        verbosities["user"].append("error")
     if args.warning:
-        verbosities.append("warning")
+        verbosities["user"].append("warning")
     if args.notification:
-        verbosities.append("notification")
-    verbosities = tuple(verbosities)
+        verbosities["user"].append("notification")
 
     client = Client(
         server_address= (args.ipaddress, args.port), 
