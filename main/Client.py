@@ -25,7 +25,7 @@ from .SecureFTP.LocalVNetwork.SecureTCP import STCPSocketClosed
 from .FileEncryptor import BytesGenerator, BMPImage
 from .FileEncryptor import FileEncryptor, BMPEncryptor
 
-from .FileStorage import File, MAX_BUFFER, FileUtils
+from .FileStorage import File, FileUtils
 
 from .constant import SIZE_OF_INT, N_BYTES_FOR_IDENTIFYING_PATH
 from .constant import DEFAULT_N_BLOCKS, DEFAULT_N_PROOFS, DEFAULT_SIZE_OF_SIGNAL_NUMBER, DEFAULT_N_VERIFIED_BLOCKS
@@ -51,14 +51,14 @@ def __encrypt_bmp__(file_name, new_file_name):
     bytes_gen = BMPImage(file_name)
     cipher = AES_CBC(KEY)
     cipher.set_param(0, IV)
-    file_enc = BMPEncryptor(cipher, buffer_size= 2 * 1024 ** 2)
+    file_enc = BMPEncryptor(cipher, buffer_size= 500 * 1024)
     file_enc.encrypt_to(bytes_gen, new_file_name)
 
 def __encrypt_arbitrary_file__(file_name, new_file_name):
     bytes_gen = BytesGenerator("file", file_name)
     cipher = AES_CBC(KEY)
     cipher.set_param(0, IV)
-    file_enc = FileEncryptor(cipher, buffer_size= 2 * 1024 ** 2)
+    file_enc = FileEncryptor(cipher, buffer_size= 500 * 1024)
     file_enc.encrypt_to(bytes_gen, new_file_name)
 
 
@@ -66,14 +66,14 @@ def __decrypt_bmp_file__(file_name, new_file_name):
     bytes_gen = BMPImage(file_name)
     cipher = AES_CBC(KEY)
     cipher.set_param(0, IV)
-    file_enc = BMPEncryptor(cipher, buffer_size= 2 * 1024 ** 2)
+    file_enc = BMPEncryptor(cipher, buffer_size= 500 * 1024)
     file_enc.decrypt_to(bytes_gen, new_file_name)
 
 def __decrypt_arbitrary_file__(file_name, new_file_name):
     bytes_gen = BytesGenerator("file", file_name)
     cipher = AES_CBC(KEY)
     cipher.set_param(0, IV)
-    file_enc = FileEncryptor(cipher, buffer_size= 2 * 1024 ** 2)
+    file_enc = FileEncryptor(cipher, buffer_size= 500 * 1024)
     file_enc.decrypt_to(bytes_gen, new_file_name)
 
 def __encrypt_file__(file_name, new_file_name):
