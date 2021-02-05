@@ -172,8 +172,10 @@ def engine(args):
         else:
             elapsed_time.append(hmean(tmp_elapsed_time))
         print("Elapsed time for {} of {} is {:.2f}s".format(NAME_OF_FUNCTION, file_name, elapsed_time[-1]))
-        print("Variation of elapsed time is {}".format(variation(elapsed_time)))
+        print("Variation of elapsed time is {:.2f}".format(variation(tmp_elapsed_time)))
         print("-----------------------------------------------------------")
+
+    print("Variation of all elapsed time is {:.2f}".format(variation(elapsed_time)))
 
     if args.display:
         plt.plot(sizes, elapsed_time)
